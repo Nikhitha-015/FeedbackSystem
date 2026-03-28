@@ -1,62 +1,79 @@
-from flask import request, Response, jsonify, session
-from flask_login import login_required, current_user
-from flask_restx import Namespace, Resource
-
-from History_component.dao.feedback import FeedbackDao
+import base64
 from History_component.db import db
-from History_component.providers.feedback import FeedbackProvider
+from History_component.models.feedback import Feedback
 
-feedback_ref=Namespace('feedback', strict_slashes=False)
+class FeedbackDao:
 
-@feedback_ref.route('/')
-class FeedbackMain(Resource):
-    @login_required
-    def get(self):
-        all_feedback=FeedbackProvider.get_feedback()
-        return jsonify(all_feedback)
-
-    @login_required
-    def post(self):
-        user_id=current_user.id
-        if not user_id:
-            return jsonify({"message": "User not authenticated"}), 401
-        feedback_data = FeedbackProvider.create_feedback(user_id)
-        return (feedback_data)
-
-
-
-@feedback_ref.route('/image/<int:record_id>')
-class FeedbackImageUpdate(Resource):
-
-    @login_required
-    def patch(self, record_id):
-        updated_record = FeedbackProvider.upload_image(record_id)
-        return updated_record
-
-    @login_required
-    def get(self,record_id):
-        all_feedback = FeedbackDao.feedback_by_id(record_id)
-        if not all_feedback or not all_feedback.images:
-            return jsonify({"meesage":"Image not found"}), 404
-
+    @staticmethod
+    def get_feedback():
         connection = db.session.connection().connection
-        lo=connection.lobject(all_feedback.images,'rb')
-        image_data=lo.read()
+        cursor=connection.cursor()
+        data=Feedback.query.filter(Feedback.feedback.isnot(None)).all()
+        all_data=[]
+        for i in data:
+            image_data=None
+            if i.images:
+                try:
+                    lo=connection.lobject(i.images, 'rb')
+                    image_data=lo.read()
+                except Exception as e:
+                    print(f"Error retrieving image for OID {i.images}:{e}")
+                    connection.rollback()
+
+            all_data.append({
+                "id": i.id,
+                "user_prompt": i.user_prompt,
+                "response": i.response,
+                "feedback": i.feedback,
+                "user_id": i.user_id,
+                "image": base64.b64encode(image_data).decode('utf-8') if image_data else None
+            })
+
+        cursor.close()
         connection.close()
-        return Response(image_data, mimetype="image/jpeg")
 
-@feedback_ref.route('/binaryimage/<int:record_id>')
-class ImageUpload(Resource):
-    @login_required
-    def patch(self, record_id):
-        updated_record = FeedbackProvider.upload_image_for_bytea(record_id)
-        return updated_record
+        return all_data
+
+    @staticmethod
+    def feedback_by_id(record_id):
+        return Feedback.query.filter(Feedback.id==record_id, Feedback.feedback.isnot(None)).first()
+
+    @staticmethod
+    def update_feedback(record_id, fb_value):
+        feedback_record = db.session.query(Feedback).filter_by(id=record_id).first()
+        if feedback_record:
+            feedback_record.feedback = fb_value
+            db.session.commit()
+            return feedback_record
+        return None
+
+    @staticmethod
+    def insert(user_prompt, response,feedback,user_id):
+        feedback_entry = Feedback(
+            user_prompt=user_prompt,
+            response=response,
+            feedback=feedback,
+            user_id=user_id,
+
+        )
+        db.session.add(feedback_entry)
+        db.session.commit()
+
+        return feedback_entry
+
+    @staticmethod
+    def insert_image_to_db(image_data):
+        try:
+            connection=db.session.connection().connection
+            cursor=connection.cursor()
+            lo=connection.lobject(0,'wb',0)
+            lo.write(image_data)
+            lo.close()
+            connection.commit()
+            cursor.close()
+            return lo.oid
+        except Exception as e:
+            print(f"Error inserting image to DB: {e}")
+            return None
 
 
-    @login_required
-    def get(self,record_id):
-        data=FeedbackDao.feedback_by_id(record_id)
-        if data.image_large_binary is None:
-            return jsonify({"meesage": "Image not found"}), 404
-        image_data=data.image_large_binary
-        return Response(image_data, mimetype="image/jpeg")
