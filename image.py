@@ -1,9 +1,12 @@
-import base64
-from History_component.db import db
-from History_component.models.image import Image
+from History_component.models import db
 
-class ImageDao:
 
-    @staticmethod
-    def image_by_id(record_id):
-        return Image.query.filter(Image.id==record_id).first()
+class Image(db.Model):
+    __tablename__ = 'images'
+
+    id = db.Column(db.Integer, primary_key=True)
+    image_description=db.Column(db.Text, nullable=True)
+    image_large_binary = db.Column(db.LargeBinary, nullable=True)
+    images = db.Column(db.Integer, unique=True, nullable=True)
+    image_hash = db.Column(db.String(64), unique=True, nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)

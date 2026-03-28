@@ -1,37 +1,11 @@
-from flask import request, session, jsonify
-from flask_login import login_user, logout_user, login_required
-from flask_restx import Namespace, Resource
+from flask_login import UserMixin
 
-from History_component.db import db
-from History_component.models import Feedback
-from History_component.models.user import User
+from History_component.models import db
 
-
-user_login = Namespace('user', strict_slashes=False)
-
-@user_login.route('/login')
-class Login(Resource):
-    def post(self):
-        # if "user_id" in session:
-        #     return jsonify({"Another user is logged In"}), 403
-        data = request.get_json()
-        username = data.get("name")
-        email = data.get("email_id")
-        user = User.query.filter_by(name=username, email_id=email).first()
-        if user:
-            login_user(user)
-            # session["user_id"] = user.id
-            # session["username"] = user.name
-            # session.modified = True
-            return jsonify({"message": "Login successful", "user_id": user.id})
-
-        return jsonify({"message": "Invalid credentials"}), 401
-
-@user_login.route('/logout')
-class Logout(Resource):
-    @login_required
-    def post(self):
-
-        logout_user()
-        return "User logged out successfully", 200
-
+class User(db.Model, UserMixin):
+    __tablename__="users"
+    name=db.Column(db.String(250), nullable=False)
+    email_id=db.Column(db.String(250), nullable=False, unique=True)
+    id=db.Column(db.Integer, primary_key=True)
+    created_at=db.Column(db.DateTime(), nullable=False, server_default=db.func.current_timestamp())
+    feedback=db.relationship("Feedback", backref="user")

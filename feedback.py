@@ -1,79 +1,15 @@
-import base64
-from History_component.db import db
-from History_component.models.feedback import Feedback
-
-class FeedbackDao:
-
-    @staticmethod
-    def get_feedback():
-        connection = db.session.connection().connection
-        cursor=connection.cursor()
-        data=Feedback.query.filter(Feedback.feedback.isnot(None)).all()
-        all_data=[]
-        for i in data:
-            image_data=None
-            if i.images:
-                try:
-                    lo=connection.lobject(i.images, 'rb')
-                    image_data=lo.read()
-                except Exception as e:
-                    print(f"Error retrieving image for OID {i.images}:{e}")
-                    connection.rollback()
-
-            all_data.append({
-                "id": i.id,
-                "user_prompt": i.user_prompt,
-                "response": i.response,
-                "feedback": i.feedback,
-                "user_id": i.user_id,
-                "image": base64.b64encode(image_data).decode('utf-8') if image_data else None
-            })
-
-        cursor.close()
-        connection.close()
-
-        return all_data
-
-    @staticmethod
-    def feedback_by_id(record_id):
-        return Feedback.query.filter(Feedback.id==record_id, Feedback.feedback.isnot(None)).first()
-
-    @staticmethod
-    def update_feedback(record_id, fb_value):
-        feedback_record = db.session.query(Feedback).filter_by(id=record_id).first()
-        if feedback_record:
-            feedback_record.feedback = fb_value
-            db.session.commit()
-            return feedback_record
-        return None
-
-    @staticmethod
-    def insert(user_prompt, response,feedback,user_id):
-        feedback_entry = Feedback(
-            user_prompt=user_prompt,
-            response=response,
-            feedback=feedback,
-            user_id=user_id,
-
-        )
-        db.session.add(feedback_entry)
-        db.session.commit()
-
-        return feedback_entry
-
-    @staticmethod
-    def insert_image_to_db(image_data):
-        try:
-            connection=db.session.connection().connection
-            cursor=connection.cursor()
-            lo=connection.lobject(0,'wb',0)
-            lo.write(image_data)
-            lo.close()
-            connection.commit()
-            cursor.close()
-            return lo.oid
-        except Exception as e:
-            print(f"Error inserting image to DB: {e}")
-            return None
+from History_component.models import db
 
 
+class Feedback(db.Model):
+    __tablename__ = 'feedback'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_prompt = db.Column(db.String(4098), nullable=False)
+    response = db.Column(db.String(4098), nullable=False)
+    feedback = db.Column(db.Boolean, nullable=True)
+    created_at = db.Column(db.DateTime(), nullable=False, server_default=db.func.current_timestamp())
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    image_large_binary = db.Column(db.LargeBinary, nullable=True)
+    images = db.Column(db.Integer, unique=True, nullable=True)
+    image_hash = db.Column(db.String(64), unique=True, nullable=True)
